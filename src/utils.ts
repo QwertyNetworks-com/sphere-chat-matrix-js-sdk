@@ -69,6 +69,25 @@ export function encodeParams(params: Record<string, string | number | boolean>):
     return searchParams.toString();
 }
 
+/**
+ * Replace a stable parameter with the unstable naming for params
+ * @param stable
+ * @param unstable
+ * @param dict
+ */
+export function replaceParam(
+    stable: string,
+    unstable: string,
+    dict: Record<string, string | number | boolean>,
+): Record<string, string | number | boolean> {
+    const result = {
+        ...dict,
+        [unstable]: dict[stable],
+    };
+    delete result[stable];
+    return result;
+}
+
 export type QueryDict = Record<string, string | string[]>;
 
 /**
