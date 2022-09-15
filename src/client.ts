@@ -5405,26 +5405,7 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
             // functions contiguously, so we have to jump through some hoops to get our target event in it.
             // XXX: workaround for https://github.com/vector-im/element-meta/issues/150
             if (Thread.hasServerSideSupport && timelineSet.thread) {
-                const thread = timelineSet.thread;
-                const opts: IRelationsRequestOpts = {
-                    dir: Direction.Backward,
-                    limit: 50,
-                };
-
-                await thread.fetchInitialEvents();
-                let nextBatch: string | null | undefined = thread.liveTimeline.getPaginationToken(Direction.Backward);
-
-                // Fetch events until we find the one we were asked for, or we run out of pages
-                while (!thread.findEventById(eventId)) {
-                    if (nextBatch) {
-                        opts.from = nextBatch;
-                    }
-
-                    ({ nextBatch } = await thread.fetchEvents(opts));
-                    if (!nextBatch) break;
-                }
-
-                return thread.liveTimeline;
+                return await this.getThreadTimeline(timelineSet, eventId);
             }
         }
 
@@ -5452,6 +5433,88 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
             ?? timeline;
     }
 
+    public async getThreadTimeline(timelineSet: EventTimelineSet, eventId: string): Promise<EventTimeline | undefined> {
+        if (!Thread.hasServerSideSupport) {
+            logger.error("thread context: could not get thread timeline: no serverside support");
+            return undefined;
+        }
+
+        if (!this.supportsExperimentalThreads()) {
+            logger.error("thread context: could not get thread timeline: no client support");
+            return undefined;
+        }
+
+        if (!timelineSet.thread) {
+            logger.error("thread context: could not get thread timeline: not a thread timeline");
+            return undefined;
+        }
+
+        const path = utils.encodeUri(
+            "/rooms/$roomId/context/$eventId", {
+                $roomId: timelineSet.room.roomId,
+                $eventId: eventId,
+            },
+        );
+
+        const params: Record<string, string | string[]> = {
+            limit: "0",
+        };
+        if (this.clientOpts.lazyLoadMembers) {
+            params.filter = JSON.stringify(Filter.LAZY_LOADING_MESSAGES_FILTER);
+        }
+
+        // TODO: we should implement a backoff (as per scrollback()) to deal more nicely with HTTP errors.
+        const res = await this.http.authedRequest<IContextResponse>(undefined, Method.Get, path, params);
+        logger.error("thread context: ", res);
+
+        const thread = timelineSet.thread;
+        const mapper = this.getEventMapper();
+        const resOlder = await this.fetchRelations(
+            timelineSet.room.roomId,
+            thread.id,
+            THREAD_RELATION_TYPE.name,
+            null,
+            { dir: Direction.Backward, limit: 5, from: res.start },
+        );
+        const resNewer = await this.fetchRelations(
+            timelineSet.room.roomId,
+            thread.id,
+            THREAD_RELATION_TYPE.name,
+            null,
+            { dir: Direction.Forward, limit: 5, from: res.end },
+        );
+        const event = mapper(res.event);
+        const events = [
+            // Order events from most recent to oldest (reverse-chronological).
+            // We start with the last event, since that's the point at which we have known state.
+            // events_after is already backwards; events_before is forwards.
+            ...resNewer.chunk.reverse().map(mapper),
+            event,
+            ...resOlder.chunk.map(mapper),
+        ];
+        logger.error("thread context:", events.map(it => it?.event?.content?.body));
+
+        // Here we handle non-thread timelines only, but still process any thread events to populate thread summaries.
+        let timeline = timelineSet.getTimelineForEvent(event.getId());
+        if (timeline) {
+            timeline.getState(EventTimeline.BACKWARDS).setUnknownStateEvents(res.state.map(mapper));
+        } else {
+            timeline = timelineSet.addTimeline();
+            timeline.initialiseState(res.state.map(mapper));
+        }
+
+        timelineSet.addEventsToTimeline(events, true, timeline, resNewer.next_batch);
+        timeline.setPaginationToken(resOlder.prev_batch, Direction.Backward);
+        timeline.setPaginationToken(resNewer.next_batch, Direction.Forward);
+        this.processBeaconEvents(timelineSet.room, events);
+
+        // There is no guarantee that the event ended up in "timeline" (we might have switched to a neighbouring
+        // timeline) - so check the room's index again. On the other hand, there's no guarantee the event ended up
+        // anywhere, if it was later redacted, so we just return the timeline we first thought of.
+        return timelineSet.getTimelineForEvent(eventId)
+            ?? timeline;
+    }
+
     /**
      * Get an EventTimeline for the latest events in the room. This will just
      * call `/messages` to get the latest message in the room, then use
@@ -5473,28 +5536,44 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
             throw new Error("getLatestTimeline only supports room timelines");
         }
 
-        let res: IMessagesResponse;
-        const roomId = timelineSet.room.roomId;
+        let event;
         if (timelineSet.isThreadTimeline) {
-            res = await this.createThreadListMessagesRequest(
-                roomId,
+            const res = await this.createThreadListMessagesRequest(
+                timelineSet.room.roomId,
                 null,
                 1,
                 Direction.Backward,
                 timelineSet.getFilter(),
             );
+            event = res.chunk?.[0];
+        } else if (timelineSet.thread && Thread.hasServerSideSupport) {
+            const res = await this.fetchRelations(
+                timelineSet.room.roomId,
+                timelineSet.thread.id,
+                THREAD_RELATION_TYPE.name,
+                null,
+                { dir: Direction.Backward, limit: 1 },
+            );
+            event = res.chunk?.[0];
         } else {
-            res = await this.createMessagesRequest(
-                roomId,
-                null,
-                1,
-                Direction.Backward,
-                timelineSet.getFilter(),
+            const messagesPath = utils.encodeUri(
+                "/rooms/$roomId/messages", {
+                    $roomId: timelineSet.room.roomId,
+                },
             );
+
+            const params: Record<string, string | string[]> = {
+                dir: 'b',
+            };
+            if (this.clientOpts.lazyLoadMembers) {
+                params.filter = JSON.stringify(Filter.LAZY_LOADING_MESSAGES_FILTER);
+            }
+
+            const res = await this.http.authedRequest<IMessagesResponse>(undefined, Method.Get, messagesPath, params);
+            event = res.chunk?.[0];
         }
-        const event = res.chunk?.[0];
         if (!event) {
-            throw new Error("No message returned from /messages when trying to construct getLatestTimeline");
+            throw new Error("No message returned when trying to construct getLatestTimeline");
         }
 
         return this.getEventTimeline(timelineSet, event.event_id);
@@ -5626,7 +5705,8 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
     public paginateEventTimeline(eventTimeline: EventTimeline, opts: IPaginateOpts): Promise<boolean> {
         const isNotifTimeline = (eventTimeline.getTimelineSet() === this.notifTimelineSet);
         const room = this.getRoom(eventTimeline.getRoomId());
-        const isThreadTimeline = eventTimeline.getTimelineSet().isThreadTimeline;
+        const isThreadListTimeline = eventTimeline.getTimelineSet().isThreadTimeline;
+        const isThreadTimeline = (eventTimeline.getTimelineSet().thread);
 
         // TODO: we should implement a backoff (as per scrollback()) to deal more
         // nicely with HTTP errors.
@@ -5697,7 +5777,7 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
                 eventTimeline.paginationRequests[dir] = null;
             });
             eventTimeline.paginationRequests[dir] = promise;
-        } else if (isThreadTimeline) {
+        } else if (isThreadListTimeline) {
             if (!room) {
                 throw new Error("Unknown room " + eventTimeline.getRoomId());
             }
@@ -5729,6 +5809,44 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
                     eventTimeline.setPaginationToken(null, dir);
                 }
                 return res.end !== res.start;
+            }).finally(() => {
+                eventTimeline.paginationRequests[dir] = null;
+            });
+            eventTimeline.paginationRequests[dir] = promise;
+        } else if (isThreadTimeline) {
+            const room = this.getRoom(eventTimeline.getRoomId());
+            if (!room) {
+                throw new Error("Unknown room " + eventTimeline.getRoomId());
+            }
+
+            promise = this.fetchRelations(
+                eventTimeline.getRoomId(),
+                eventTimeline.getTimelineSet().thread?.id,
+                THREAD_RELATION_TYPE.name,
+                null,
+                { dir, limit: opts.limit, from: token },
+            ).then((res) => {
+                const token = res.next_batch;
+                const mapper = this.getEventMapper();
+                const matrixEvents = res.chunk.map(mapper);
+
+                logger.error(`Paginating ${backwards ? "backwards" : "forwards"}:`, token,
+                    matrixEvents.map(it => it.event.content.body));
+
+                const timelineSet = eventTimeline.getTimelineSet();
+                timelineSet.addEventsToTimeline(matrixEvents, backwards, eventTimeline, token ?? null);
+                if (!token && backwards) {
+                    timelineSet.addEventsToTimeline([mapper(res.original_event)], true, eventTimeline, null);
+                }
+                this.processBeaconEvents(timelineSet.room, matrixEvents);
+
+                // if we've hit the end of the timeline, we need to stop trying to
+                // paginate. We need to keep the 'forwards' token though, to make sure
+                // we can recover from gappy syncs.
+                if (backwards && !token) {
+                    eventTimeline.setPaginationToken(null, dir);
+                }
+                return Boolean(token);
             }).finally(() => {
                 eventTimeline.paginationRequests[dir] = null;
             });
@@ -6818,6 +6936,10 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
      * @return {Promise<boolean>} true if the feature is supported
      */
     public async doesServerSupportUnstableFeature(feature: string): Promise<boolean> {
+        // FIXME: WORKAROUND FOR NOW
+        if (feature === "org.matrix.msc3856" && this.http?.opts?.baseUrl === "https://threads-dev.lab.element.dev") {
+            return true;
+        }
         const response = await this.getVersions();
         if (!response) return false;
         const unstableFeatures = response["unstable_features"];

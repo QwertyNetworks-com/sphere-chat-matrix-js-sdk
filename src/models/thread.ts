@@ -26,15 +26,14 @@ import {
     RoomEvent
 } from "../matrix";
 import {TypedReEmitter} from "../ReEmitter";
-import {IRelationsRequestOpts} from "../@types/requests";
-import {IThreadBundledRelationship, MatrixEvent} from "./event";
-import {Direction, EventTimeline} from "./event-timeline";
-import {EventTimelineSet, EventTimelineSetHandlerMap} from './event-timeline-set';
-import {Room} from './room';
-import {RoomState} from "./room-state";
-import {ServerControlledNamespacedValue} from "../NamespacedValue";
-import {logger} from "../logger";
-import {ReadReceipt} from "./read-receipt";
+import { IThreadBundledRelationship, MatrixEvent } from "./event";
+import { EventTimeline } from "./event-timeline";
+import { EventTimelineSet, EventTimelineSetHandlerMap } from './event-timeline-set';
+import { Room } from './room';
+import { RoomState } from "./room-state";
+import { ServerControlledNamespacedValue } from "../NamespacedValue";
+import { logger } from "../logger";
+import { ReadReceipt } from "./read-receipt";
 import * as utils from "../utils";
 
 export enum ThreadEvent {
@@ -55,7 +54,6 @@ export type EventHandlerMap = {
 } & EventTimelineSetHandlerMap;
 
 interface IThreadOpts {
-    initialEvents?: MatrixEvent[];
     room: Room;
     client: MatrixClient;
 }
@@ -98,8 +96,6 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
     public readonly room: Room;
     public readonly client: MatrixClient;
 
-    public initialEventsFetched = !Thread.hasServerSideSupport;
-
     constructor(
         public readonly id: string,
         public rootEvent: MatrixEvent | undefined,
@@ -131,9 +127,6 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
         this.room.on(RoomEvent.LocalEchoUpdated, this.onEcho);
         this.timelineSet.on(RoomEvent.Timeline, this.onEcho);
 
-        if (opts.initialEvents) {
-            this.addEvents(opts.initialEvents, false);
-        }
         // even if this thread is thought to be originating from this client, we initialise it as we may be in a
         // gappy sync and a thread around this event may already exist.
         this.initialiseThread();
@@ -335,7 +328,6 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
 
             this.client.decryptEventIfNeeded(event, {});
         } else if (!toStartOfTimeline &&
-            this.initialEventsFetched &&
             event.localTimestamp > this.lastReply()?.localTimestamp
         ) {
             this.fetchEditsWhereNeeded(event);
@@ -388,7 +380,7 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
     }
 
     // XXX: Workaround for https://github.com/matrix-org/matrix-spec-proposals/pull/2676/files#r827240084
-    private async fetchEditsWhereNeeded(...events: MatrixEvent[]): Promise<unknown> {
+    public async fetchEditsWhereNeeded(...events: MatrixEvent[]): Promise<unknown> {
         return Promise.all(events.filter(e => e.isEncrypted()).map((event: MatrixEvent) => {
             if (event.isRelation()) return; // skip - relations don't get edits
             return this.client.relations(this.roomId, event.getId(), RelationType.Replace, event.getType(), {
@@ -401,12 +393,6 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
                 logger.error("Failed to load edits for encrypted thread event", e);
             });
         }));
-    }
-
-    public async fetchInitialEvents(): Promise<void> {
-        if (this.initialEventsFetched) return;
-        await this.fetchEvents();
-        this.initialEventsFetched = true;
     }
 
     private setEventMetadata(event: MatrixEvent): void {
@@ -473,57 +459,6 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
 
     public get liveTimeline(): EventTimeline {
         return this.timelineSet.getLiveTimeline();
-    }
-
-    public async fetchEvents(
-        opts: IRelationsRequestOpts = { limit: 20, dir: Direction.Backward },
-    ): Promise<{
-        originalEvent: MatrixEvent;
-        events: MatrixEvent[];
-        nextBatch?: string | null;
-        prevBatch?: string;
-    }> {
-        let {
-            originalEvent,
-            events,
-            prevBatch,
-            nextBatch,
-        } = await this.client.relations(
-            this.room.roomId,
-            this.id,
-            THREAD_RELATION_TYPE.name,
-            null,
-            opts,
-        );
-
-        // When there's no nextBatch returned with a `from` request we have reached
-        // the end of the thread, and therefore want to return an empty one
-        if (!opts.to && !nextBatch) {
-            events = [...events, originalEvent];
-        }
-
-        await this.fetchEditsWhereNeeded(...events);
-
-        await Promise.all(events.map(event => {
-            this.setEventMetadata(event);
-            return this.client.decryptEventIfNeeded(event);
-        }));
-
-        const prependEvents = (opts.dir ?? Direction.Backward) === Direction.Backward;
-
-        this.timelineSet.addEventsToTimeline(
-            events,
-            prependEvents,
-            this.liveTimeline,
-            prependEvents ? nextBatch : prevBatch,
-        );
-
-        return {
-            originalEvent,
-            events,
-            prevBatch,
-            nextBatch,
-        };
     }
 
     public getUnfilteredTimelineSet(): EventTimelineSet {

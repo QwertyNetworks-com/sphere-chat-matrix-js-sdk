@@ -131,9 +131,13 @@ export class TimelineWindow {
         if (initialEventId) {
             return this.client.getEventTimeline(this.timelineSet, initialEventId).then(initFields);
         } else {
-            const tl = this.timelineSet.getLiveTimeline();
-            initFields(tl);
-            return Promise.resolve();
+            const timeline = this.timelineSet.getLiveTimeline();
+            if (timeline && timeline.getEvents().length) {
+                initFields(timeline);
+                return Promise.resolve();
+            }
+
+            return this.client.getLatestTimeline(this.timelineSet).then(initFields);
         }
     }
 
@@ -250,7 +254,7 @@ export class TimelineWindow {
      * @return {Promise} Resolves to a boolean which is true if more events
      *    were successfully retrieved.
      */
-    public paginate(
+    public async paginate(
         direction: Direction,
         size: number,
         makeRequest = true,
@@ -262,7 +266,7 @@ export class TimelineWindow {
 
         if (!tl) {
             debuglog("TimelineWindow: no timeline yet");
-            return Promise.resolve(false);
+            return false;
         }
 
         if (tl.pendingPaginate) {
@@ -271,20 +275,20 @@ export class TimelineWindow {
 
         // try moving the cap
         if (this.extend(direction, size)) {
-            return Promise.resolve(true);
+            return true;
         }
 
         if (!makeRequest || requestLimit === 0) {
             // todo: should we return something different to indicate that there
             // might be more events out there, but we haven't found them yet?
-            return Promise.resolve(false);
+            return false;
         }
 
         // try making a pagination request
         const token = tl.timeline.getPaginationToken(direction);
-        if (token === null) {
+        if (!token) {
             debuglog("TimelineWindow: no token");
-            return Promise.resolve(false);
+            return false;
         }
 
         debuglog("TimelineWindow: starting request");
@@ -297,8 +301,7 @@ export class TimelineWindow {
         }).then((r) => {
             debuglog("TimelineWindow: request completed with result " + r);
             if (!r) {
-                // end of timeline
-                return false;
+                return this.paginate(direction, size, false, 0);
             }
 
             // recurse to advance the index into the results.

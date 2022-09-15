@@ -1889,7 +1889,6 @@ export class Room extends ReadReceipt<EmittedEvents, RoomEventHandlerMap> {
         }
 
         const thread = new Thread(threadId, rootEvent, {
-            initialEvents: events,
             room: this,
             client: this.client,
         });
