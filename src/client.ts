@@ -5358,6 +5358,10 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
             throw new Error("getEventTimeline only supports room timelines");
         }
 
+        if (timelineSet.thread) {
+            return this.getThreadTimeline(timelineSet, eventId);
+        }
+
         if (timelineSet.getTimelineForEvent(eventId)) {
             return timelineSet.getTimelineForEvent(eventId);
         }
@@ -5492,6 +5496,7 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
             event,
             ...resOlder.chunk.map(mapper),
         ];
+        await timelineSet.thread?.fetchEditsWhereNeeded(...events);
         logger.error("thread context:", events.map(it => it?.event?.content?.body));
 
         // Here we handle non-thread timelines only, but still process any thread events to populate thread summaries.
@@ -5504,7 +5509,7 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
         }
 
         timelineSet.addEventsToTimeline(events, true, timeline, resNewer.next_batch);
-        timeline.setPaginationToken(resOlder.prev_batch, Direction.Backward);
+        timeline.setPaginationToken(resOlder.next_batch, Direction.Backward);
         timeline.setPaginationToken(resNewer.next_batch, Direction.Forward);
         this.processBeaconEvents(timelineSet.room, events);
 
@@ -5826,16 +5831,21 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
                 null,
                 { dir, limit: opts.limit, from: token },
             ).then((res) => {
-                const token = res.next_batch;
                 const mapper = this.getEventMapper();
                 const matrixEvents = res.chunk.map(mapper);
+                eventTimeline.getTimelineSet().thread?.fetchEditsWhereNeeded(...matrixEvents);
 
-                logger.error(`Paginating ${backwards ? "backwards" : "forwards"}:`, token,
-                    matrixEvents.map(it => it.event.content.body));
+                logger.error(`Paginating ${backwards ? "backwards" : "forwards"}:`, {
+                    token,
+                    prev: res.prev_batch,
+                    next: res.next_batch,
+                    events: matrixEvents.map(it => it.event.content.body),
+                });
+                const newToken = res.next_batch;
 
                 const timelineSet = eventTimeline.getTimelineSet();
-                timelineSet.addEventsToTimeline(matrixEvents, backwards, eventTimeline, token ?? null);
-                if (!token && backwards) {
+                timelineSet.addEventsToTimeline(matrixEvents, backwards, eventTimeline, newToken ?? null);
+                if (!newToken && backwards) {
                     timelineSet.addEventsToTimeline([mapper(res.original_event)], true, eventTimeline, null);
                 }
                 this.processBeaconEvents(timelineSet.room, matrixEvents);
@@ -5843,10 +5853,10 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
                 // if we've hit the end of the timeline, we need to stop trying to
                 // paginate. We need to keep the 'forwards' token though, to make sure
                 // we can recover from gappy syncs.
-                if (backwards && !token) {
+                if (backwards && !newToken) {
                     eventTimeline.setPaginationToken(null, dir);
                 }
-                return Boolean(token);
+                return Boolean(newToken);
             }).finally(() => {
                 eventTimeline.paginationRequests[dir] = null;
             });
