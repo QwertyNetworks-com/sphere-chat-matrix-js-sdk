@@ -23,10 +23,10 @@ import { IThreadBundledRelationship, MatrixEvent } from "./event";
 import { Direction, EventTimeline } from "./event-timeline";
 import { EventTimelineSet, EventTimelineSetHandlerMap } from './event-timeline-set';
 import { Room } from './room';
-import { TypedEventEmitter } from "./typed-event-emitter";
 import { RoomState } from "./room-state";
 import { ServerControlledNamespacedValue } from "../NamespacedValue";
 import { logger } from "../logger";
+import { ReadReceipt } from "./read-receipt";
 
 export enum ThreadEvent {
     New = "Thread.new",
@@ -54,7 +54,7 @@ interface IThreadOpts {
 /**
  * @experimental
  */
-export class Thread extends TypedEventEmitter<EmittedEvents, EventHandlerMap> {
+export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
     public static hasServerSideSupport: boolean;
 
     /**
@@ -335,7 +335,7 @@ export class Thread extends TypedEventEmitter<EmittedEvents, EventHandlerMap> {
     /**
      * Return last reply to the thread, if known.
      */
-    public lastReply(matches: (ev: MatrixEvent) => boolean = () => true): Optional<MatrixEvent> {
+    public lastReply(matches: (ev: MatrixEvent) => boolean = () => true): MatrixEvent | null {
         for (let i = this.events.length - 1; i >= 0; i--) {
             const event = this.events[i];
             if (matches(event)) {
@@ -384,7 +384,7 @@ export class Thread extends TypedEventEmitter<EmittedEvents, EventHandlerMap> {
     public async fetchEvents(opts: IRelationsRequestOpts = { limit: 20, direction: Direction.Backward }): Promise<{
         originalEvent: MatrixEvent;
         events: MatrixEvent[];
-        nextBatch?: string;
+        nextBatch?: string | null;
         prevBatch?: string;
     }> {
         let {
@@ -428,6 +428,18 @@ export class Thread extends TypedEventEmitter<EmittedEvents, EventHandlerMap> {
             prevBatch,
             nextBatch,
         };
+    }
+
+    public getUnfilteredTimelineSet(): EventTimelineSet {
+        return this.timelineSet;
+    }
+
+    public get timeline(): MatrixEvent[] {
+        return this.events;
+    }
+
+    public addReceipt(event: MatrixEvent, synthetic: boolean): void {
+        throw new Error("Unsupported function on the thread model");
     }
 }
 
