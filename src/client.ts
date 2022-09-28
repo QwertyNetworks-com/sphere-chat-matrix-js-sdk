@@ -158,7 +158,9 @@ import {
 } from "./@types/requests";
 import {
     EventType,
+    LOCAL_NOTIFICATION_SETTINGS_PREFIX,
     MsgType,
+    PUSHER_ENABLED,
     RelationType,
     RoomCreateTypeField,
     RoomType,
@@ -188,7 +190,7 @@ import { IPusher, IPusherRequest, IPushRules, PushRuleAction, PushRuleKind, Rule
 import { IThreepid } from "./@types/threepids";
 import { CryptoStore } from "./crypto/store/base";
 import { MediaHandler } from "./webrtc/mediaHandler";
-import { IRefreshTokenResponse, SSOAction } from "./@types/auth";
+import { LoginTokenPostResponse, ILoginFlowsResponse, IRefreshTokenResponse, SSOAction } from "./@types/auth";
 import { TypedEventEmitter } from "./models/typed-event-emitter";
 import { ReceiptType } from "./@types/read_receipts";
 import { MSC3575SlidingSyncRequest, MSC3575SlidingSyncResponse, SlidingSync } from "./sliding-sync";
@@ -200,6 +202,8 @@ import { ToDeviceMessageQueue } from "./ToDeviceMessageQueue";
 import { ToDeviceBatch } from "./models/ToDeviceMessage";
 import { MAIN_ROOM_TIMELINE } from "./models/read-receipt";
 import { IgnoredInvites } from "./models/invites-ignorer";
+import { UIARequest, UIAResponse } from "./@types/uia";
+import { LocalNotificationSettings } from "./@types/local_notifications";
 
 export type Store = IStore;
 
@@ -524,10 +528,16 @@ interface IServerVersions {
     unstable_features: Record<string, boolean>;
 }
 
+export const M_AUTHENTICATION = new UnstableValue(
+    "m.authentication",
+    "org.matrix.msc2965.authentication",
+);
+
 export interface IClientWellKnown {
     [key: string]: any;
     "m.homeserver"?: IWellKnownConfig;
     "m.identity_server"?: IWellKnownConfig;
+    [M_AUTHENTICATION.name]?: IDelegatedAuthConfig; // MSC2965
 }
 
 export interface IWellKnownConfig {
@@ -537,6 +547,13 @@ export interface IWellKnownConfig {
     error?: Error | string;
     // eslint-disable-next-line
     base_url?: string | null;
+}
+
+export interface IDelegatedAuthConfig { // MSC2965
+    /** The OIDC Provider/issuer the client should use */
+    issuer: string;
+    /** The optional URL of the web UI where the user can manage their account */
+    account?: string;
 }
 
 interface IKeyBackupPath {
@@ -3425,7 +3442,7 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
      * @param {string} eventType The event type
      * @return {?object} The contents of the given account data event
      */
-    public getAccountData(eventType: string): MatrixEvent {
+    public getAccountData(eventType: string): MatrixEvent | undefined {
         return this.store.getAccountData(eventType);
     }
 
@@ -7105,10 +7122,10 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
 
     /**
      * @param {module:client.callback} callback Optional.
-     * @return {Promise} Resolves: TODO
+     * @return {Promise<ILoginFlowsResponse>} Resolves to the available login flows
      * @return {module:http-api.MatrixError} Rejects: with an error response.
      */
-    public loginFlows(callback?: Callback): Promise<any> { // TODO: Types
+    public loginFlows(callback?: Callback): Promise<ILoginFlowsResponse> {
         return this.http.request(callback, Method.Get, "/login");
     }
 
@@ -7275,6 +7292,27 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
         }
 
         return this.http.authedRequest(undefined, Method.Post, '/account/deactivate', undefined, body);
+    }
+
+    /**
+     * Make a request for an `m.login.token` to be issued as per
+     * [MSC3882](https://github.com/matrix-org/matrix-spec-proposals/pull/3882).
+     * The server may require User-Interactive auth.
+     * Note that this is UNSTABLE and subject to breaking changes without notice.
+     * @param {IAuthData} auth Optional. Auth data to supply for User-Interactive auth.
+     * @return {Promise<UIAResponse<LoginTokenPostResponse>>} Resolves: On success, the token response
+     * or UIA auth data.
+     */
+    public requestLoginToken(auth?: IAuthData): Promise<UIAResponse<LoginTokenPostResponse>> {
+        const body: UIARequest<{}> = { auth };
+        return this.http.authedRequest(
+            undefined, // no callback support
+            Method.Post,
+            "/org.matrix.msc3882/login/token",
+            undefined, // no query params
+            body,
+            { prefix: PREFIX_UNSTABLE },
+        );
     }
 
     /**
@@ -8135,8 +8173,21 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
      * @return {Promise} Resolves: Array of objects representing pushers
      * @return {module:http-api.MatrixError} Rejects: with an error response.
      */
-    public getPushers(callback?: Callback): Promise<{ pushers: IPusher[] }> {
-        return this.http.authedRequest(callback, Method.Get, "/pushers");
+    public async getPushers(callback?: Callback): Promise<{ pushers: IPusher[] }> {
+        const response = await this.http.authedRequest(callback, Method.Get, "/pushers");
+
+        // Migration path for clients that connect to a homeserver that does not support
+        // MSC3881 yet, see https://github.com/matrix-org/matrix-spec-proposals/blob/kerry/remote-push-toggle/proposals/3881-remote-push-notification-toggling.md#migration
+        if (!await this.doesServerSupportUnstableFeature("org.matrix.msc3881")) {
+            response.pushers = response.pushers.map(pusher => {
+                if (!pusher.hasOwnProperty(PUSHER_ENABLED.name)) {
+                    pusher[PUSHER_ENABLED.name] = true;
+                }
+                return pusher;
+            });
+        }
+
+        return response;
     }
 
     /**
@@ -8150,6 +8201,21 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
     public setPusher(pusher: IPusherRequest, callback?: Callback): Promise<{}> {
         const path = "/pushers/set";
         return this.http.authedRequest(callback, Method.Post, path, undefined, pusher);
+    }
+
+    /**
+     * Persists local notification settings
+     * @param {string} deviceId
+     * @param {LocalNotificationSettings} notificationSettings
+     * @return {Promise} Resolves: an empty object
+     * @return {module:http-api.MatrixError} Rejects: with an error response.
+     */
+    public setLocalNotificationSettings(
+        deviceId: string,
+        notificationSettings: LocalNotificationSettings,
+    ): Promise<{}> {
+        const key = `${LOCAL_NOTIFICATION_SETTINGS_PREFIX.name}.${deviceId}`;
+        return this.setAccountData(key, notificationSettings);
     }
 
     /**
