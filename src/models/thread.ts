@@ -26,14 +26,14 @@ import {
     RoomEvent
 } from "../matrix";
 import {TypedReEmitter} from "../ReEmitter";
-import { IThreadBundledRelationship, MatrixEvent } from "./event";
-import { EventTimeline } from "./event-timeline";
-import { EventTimelineSet, EventTimelineSetHandlerMap } from './event-timeline-set';
-import { Room } from './room';
-import { RoomState } from "./room-state";
-import { ServerControlledNamespacedValue } from "../NamespacedValue";
-import { logger } from "../logger";
-import { ReadReceipt } from "./read-receipt";
+import {IThreadBundledRelationship, MatrixEvent} from "./event";
+import {EventTimeline} from "./event-timeline";
+import {EventTimelineSet, EventTimelineSetHandlerMap} from './event-timeline-set';
+import {Room} from './room';
+import {RoomState} from "./room-state";
+import {ServerControlledNamespacedValue} from "../NamespacedValue";
+import {logger} from "../logger";
+import {ReadReceipt} from "./read-receipt";
 import * as utils from "../utils";
 
 export enum ThreadEvent {
@@ -224,45 +224,8 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
         if (this.lastEvent === event) return;
         if (!event.isRelation(THREAD_RELATION_TYPE.name)) return;
 
-        const mapper = this.client.getEventMapper();
-        const mappedEvent = await this.loadEvent(this.id);
-
-        const metadata = mappedEvent?.getServerAggregatedRelation<IThreadBundledRelationship>(THREAD_RELATION_TYPE.name);
-        if (metadata) {
-            this.replyCount = metadata.count;
-            const latestEvent = mapper(metadata.latest_event);
-            await this.fetchEditsWhereNeeded(latestEvent);
-            this.lastEvent = latestEvent;
-            this.rootEvent = mappedEvent;
-
-            console.error("echo", this.id, event, metadata);
-
-            console.error("echo: Replacing in thread list");
-            for (const timelineSet of this.room.threadsTimelineSets) {
-                timelineSet.removeEvent(this.id);
-                timelineSet.addLiveEvent(mappedEvent, {
-                    duplicateStrategy: DuplicateStrategy.Replace,
-                    fromCache: false,
-                    roomState: this.roomState,
-                });
-            }
-            const timeline = this.room.getTimelineForEvent(this.id);
-            const roomEvent = timeline?.getEvents()?.find(it => it.getId() === this.id);
-            if (roomEvent) {
-                roomEvent.event = mappedEvent.event;
-                roomEvent.setThread(this);
-                console.error("echo: Replacing root event in room timeline", roomEvent);
-            } else {
-                console.error("echo: Could not find root event in room timeline");
-            }
-            console.error("redaction: Emitting events");
-            this.room.emit(RoomEvent.TimelineRefresh, this.room, timeline.getTimelineSet());
-            this.room.emit(RoomEvent.TimelineRefresh, this.room, this.timelineSet);
-            this.emit(ThreadEvent.Update, this);
-            this.emit(ThreadEvent.NewReply, this, event);
-        } else {
-            console.error("echo failed: metadata was falsy", mappedEvent);
-        }
+        await this.initialiseThread();
+        this.emit(ThreadEvent.NewReply, this, event);
     };
 
     public get roomState(): RoomState {
@@ -339,11 +302,46 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
     }
 
     private async initialiseThread(): Promise<void> {
-        this.rootEvent = await this.loadEvent(this.id);
-        EventTimeline.setEventMetadata(this.rootEvent, this.roomState, false);
-        this.rootEvent.setThread(this);
+        const mapper = this.client.getEventMapper();
+        const mappedEvent = await this.loadEvent(this.id);
+        EventTimeline.setEventMetadata(mappedEvent, this.roomState, false);
+        mappedEvent.setThread(this);
 
-        this.emit(ThreadEvent.Update, this);
+        const metadata = mappedEvent?.getServerAggregatedRelation<IThreadBundledRelationship>(THREAD_RELATION_TYPE.name);
+        if (metadata) {
+            this.replyCount = metadata.count;
+            const latestEvent = mapper(metadata.latest_event);
+            await this.fetchEditsWhereNeeded(latestEvent);
+            this.lastEvent = latestEvent;
+            this.rootEvent = mappedEvent;
+
+            console.error("initialiseThread", this.id, event, metadata);
+
+            console.error("initialiseThread: Replacing in thread list");
+            for (const timelineSet of this.room.threadsTimelineSets) {
+                timelineSet.removeEvent(this.id);
+                timelineSet.addLiveEvent(mappedEvent, {
+                    duplicateStrategy: DuplicateStrategy.Replace,
+                    fromCache: false,
+                    roomState: this.roomState,
+                });
+            }
+            const timeline = this.room.getTimelineForEvent(this.id);
+            const roomEvent = timeline?.getEvents()?.find(it => it.getId() === this.id);
+            if (roomEvent) {
+                roomEvent.event = mappedEvent.event;
+                roomEvent.setThread(this);
+                console.error("initialiseThread: Replacing root event in room timeline", roomEvent);
+            } else {
+                console.error("initialiseThread: Could not find root event in room timeline");
+            }
+            console.error("initialiseThread: Emitting events");
+            this.room.emit(RoomEvent.TimelineRefresh, this.room, timeline.getTimelineSet());
+            this.room.emit(RoomEvent.TimelineRefresh, this.room, this.timelineSet);
+            this.emit(ThreadEvent.Update, this);
+        } else {
+            console.error("initialiseThread failed: metadata was falsy", mappedEvent);
+        }
     }
 
     // XXX: Workaround for https://github.com/matrix-org/matrix-spec-proposals/pull/2676/files#r827240084

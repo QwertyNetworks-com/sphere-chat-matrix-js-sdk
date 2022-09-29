@@ -5886,10 +5886,12 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
                 const matrixEvents = res.chunk.map(this.getEventMapper());
 
                 const timelineSet = eventTimeline.getTimelineSet();
-                const [timelineEvents, threadedEvents] = room.partitionThreadedEvents(matrixEvents);
+                const [timelineEvents] = room.partitionThreadedEvents(matrixEvents);
                 timelineSet.addEventsToTimeline(timelineEvents, backwards, eventTimeline, token);
                 this.processBeaconEvents(room, timelineEvents);
-                this.processThreadEvents(room, threadedEvents, backwards);
+                this.processThreadRoots(room,
+                    timelineEvents.filter(it => it.isRelation(THREAD_RELATION_TYPE.name)),
+                    false);
 
                 const atEnd = res.end === undefined || res.end === res.start;
 

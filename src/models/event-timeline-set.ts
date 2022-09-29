@@ -374,6 +374,12 @@ export class EventTimelineSet extends TypedEventEmitter<EmittedEvents, EventTime
             }
         }
 
+        if (this.thread) {
+            for (const event of events) {
+                EventTimeline.setEventMetadata(event, this.room.currentState, false);
+            }
+        }
+
         const direction = toStartOfTimeline ? EventTimeline.BACKWARDS :
             EventTimeline.FORWARDS;
         const inverseDirection = toStartOfTimeline ? EventTimeline.FORWARDS :
