@@ -134,25 +134,6 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
         this.rootEvent?.setThread(this);
     }
 
-    private async fetchRootEvent(): Promise<void> {
-        this.rootEvent = this.room.findEventById(this.id);
-        // If the rootEvent does not exist in the local stores, then fetch it from the server.
-        try {
-            const eventData = await this.client.fetchRoomEvent(this.roomId, this.id);
-            const mapper = this.client.getEventMapper();
-            this.rootEvent = mapper(eventData); // will merge with existing event object if such is known
-        } catch (e) {
-            logger.error("Failed to fetch thread root to construct thread with", e);
-        }
-
-        // The root event might be not be visible to the person requesting it.
-        // If it wasn't fetched successfully the thread will work in "limited" mode and won't
-        // benefit from all the APIs a homeserver can provide to enhance the thread experience
-        this.rootEvent?.setThread(this);
-
-        this.emit(ThreadEvent.Update, this);
-    }
-
     public static setServerSideSupport(
         status: FeatureSupport,
     ): void {
@@ -216,11 +197,11 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
         this.emit(ThreadEvent.Update, this);
     };
 
-    private async loadEvent(event: MatrixEvent): Promise<MatrixEvent | null> {
+    private async loadEvent(event: string): Promise<MatrixEvent | null> {
         const path = utils.encodeUri(
             "/rooms/$roomId/context/$eventId", {
                 $roomId: this.roomId,
-                $eventId: this.id,
+                $eventId: event,
             },
         );
 
@@ -233,7 +214,9 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
         }
 
         const mapper = this.client.getEventMapper();
-        return mapper(res.event);
+        const mappedEvent = mapper(res.event);
+        await this.fetchEditsWhereNeeded(mappedEvent);
+        return mappedEvent;
     }
 
     private onEcho = async (event: MatrixEvent) => {
@@ -242,12 +225,14 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
         if (!event.isRelation(THREAD_RELATION_TYPE.name)) return;
 
         const mapper = this.client.getEventMapper();
-        const mappedEvent = await this.loadEvent(this.rootEvent);
+        const mappedEvent = await this.loadEvent(this.id);
 
         const metadata = mappedEvent?.getServerAggregatedRelation<IThreadBundledRelationship>(THREAD_RELATION_TYPE.name);
         if (metadata) {
             this.replyCount = metadata.count;
-            this.lastEvent = mapper(metadata.latest_event);
+            const latestEvent = mapper(metadata.latest_event);
+            await this.fetchEditsWhereNeeded(latestEvent);
+            this.lastEvent = latestEvent;
             this.rootEvent = mappedEvent;
 
             console.error("echo", this.id, event, metadata);
@@ -271,9 +256,10 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
                 console.error("echo: Could not find root event in room timeline");
             }
             console.error("redaction: Emitting events");
-            this.room.emit(RoomEvent.TimelineRefresh, this.room, timeline.getTimelineSet())
-            this.emit(ThreadEvent.NewReply, this, event);
+            this.room.emit(RoomEvent.TimelineRefresh, this.room, timeline.getTimelineSet());
+            this.room.emit(RoomEvent.TimelineRefresh, this.room, this.timelineSet);
             this.emit(ThreadEvent.Update, this);
+            this.emit(ThreadEvent.NewReply, this, event);
         } else {
             console.error("echo failed: metadata was falsy", mappedEvent);
         }
@@ -299,6 +285,8 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
 
     public addEvents(events: MatrixEvent[], toStartOfTimeline: boolean): void {
         console.error("addEvents", this.id, events);
+        events.forEach(ev => this.addEvent(ev, toStartOfTimeline, false));
+        this.emit(ThreadEvent.Update, this);
     }
 
     /**
@@ -346,35 +334,14 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
         }
 
         if (emit) {
-            this.emit(ThreadEvent.Update, this);
+            this.emit(ThreadEvent.NewReply, this, event);
         }
-    }
-
-    private getRootEventBundledRelationship(rootEvent = this.rootEvent): IThreadBundledRelationship {
-        return rootEvent?.getServerAggregatedRelation<IThreadBundledRelationship>(THREAD_RELATION_TYPE.name);
     }
 
     private async initialiseThread(): Promise<void> {
-        let bundledRelationship = this.getRootEventBundledRelationship();
-        if (Thread.hasServerSideSupport && !bundledRelationship) {
-            await this.fetchRootEvent();
-            bundledRelationship = this.getRootEventBundledRelationship();
-        }
-
-        if (Thread.hasServerSideSupport && bundledRelationship) {
-            this.replyCount = bundledRelationship.count;
-            this._currentUserParticipated = bundledRelationship.current_user_participated;
-
-            const event = new MatrixEvent({
-                room_id: this.rootEvent.getRoomId(),
-                ...bundledRelationship.latest_event,
-            });
-            this.setEventMetadata(event);
-            event.setThread(this);
-            this.lastEvent = event;
-
-            this.fetchEditsWhereNeeded(event);
-        }
+        this.rootEvent = await this.loadEvent(this.id);
+        EventTimeline.setEventMetadata(this.rootEvent, this.roomState, false);
+        this.rootEvent.setThread(this);
 
         this.emit(ThreadEvent.Update, this);
     }
@@ -393,11 +360,6 @@ export class Thread extends ReadReceipt<EmittedEvents, EventHandlerMap> {
                 logger.error("Failed to load edits for encrypted thread event", e);
             });
         }));
-    }
-
-    private setEventMetadata(event: MatrixEvent): void {
-        EventTimeline.setEventMetadata(event, this.roomState, false);
-        event.setThread(this);
     }
 
     /**

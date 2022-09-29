@@ -16,11 +16,12 @@ limitations under the License.
 
 /** @module timeline-window */
 
-import { Direction, EventTimeline } from './models/event-timeline';
-import { logger } from './logger';
-import { MatrixClient } from "./client";
-import { EventTimelineSet } from "./models/event-timeline-set";
-import { MatrixEvent } from "./models/event";
+import {Direction, EventTimeline} from './models/event-timeline';
+import {logger} from './logger';
+import {MatrixClient} from "./client";
+import {EventTimelineSet} from "./models/event-timeline-set";
+import {MatrixEvent} from "./models/event";
+import {ThreadEvent} from "./models/thread";
 
 /**
  * @private
@@ -100,6 +101,7 @@ export class TimelineWindow {
      * @return {Promise}
      */
     public load(initialEventId?: string, initialWindowSize = 20): Promise<void> {
+        console.error("load");
         // given an EventTimeline, find the event we were looking for, and initialise our
         // fields so that the event in question is in the middle of the window.
         const initFields = (timeline: EventTimeline) => {
@@ -124,21 +126,18 @@ export class TimelineWindow {
             this.start = new TimelineIndex(timeline, startIndex - timeline.getBaseIndex());
             this.end = new TimelineIndex(timeline, endIndex - timeline.getBaseIndex());
             this.eventCount = endIndex - startIndex;
+
+            this.timelineSet.thread?.emit(ThreadEvent.Update, this.timelineSet.thread);
         };
 
         // We avoid delaying the resolution of the promise by a reactor tick if we already have the data we need,
         // which is important to keep room-switching feeling snappy.
-        if (initialEventId) {
-            return this.client.getEventTimeline(this.timelineSet, initialEventId).then(initFields);
-        } else {
-            const timeline = this.timelineSet.getLiveTimeline();
-            if (timeline && timeline.getEvents().length) {
-                initFields(timeline);
-                return Promise.resolve();
-            }
+        const timeline = initialEventId
+            ? this.client.getEventTimeline(this.timelineSet, initialEventId)
+            : this.client.getLatestTimeline(this.timelineSet)
+                .catch(() => this.timelineSet.getLiveTimeline())
 
-            return this.client.getLatestTimeline(this.timelineSet).then(initFields);
-        }
+        return timeline.then(initFields);
     }
 
     /**
@@ -172,6 +171,7 @@ export class TimelineWindow {
      * @return {boolean} true if the window was extended, false otherwise.
      */
     public extend(direction: Direction, size: number): boolean {
+        console.error("extend");
         const tl = this.getTimelineIndex(direction);
 
         if (!tl) {
@@ -184,7 +184,7 @@ export class TimelineWindow {
 
         if (count) {
             this.eventCount += count;
-            debuglog("TimelineWindow: increased cap by " + count +
+            console.error("TimelineWindow: increased cap by " + count +
                 " (now " + this.eventCount + ")");
             // remove some events from the other end, if necessary
             const excess = this.eventCount - this.windowLimit;
@@ -214,22 +214,45 @@ export class TimelineWindow {
         const tl = this.getTimelineIndex(direction);
 
         if (!tl) {
+            if (this.timelineSet.thread) {
+                console.error(`canPaginate: ${direction}, false, no timeline`);
+            }
             debuglog("TimelineWindow: no timeline yet");
             return false;
         }
 
         if (direction == EventTimeline.BACKWARDS) {
             if (tl.index > tl.minIndex()) {
+                if (this.timelineSet.thread) {
+                    console.error(`canPaginate: ${direction}, true, tl.index > tl.minIndex`);
+                }
                 return true;
             }
         } else {
             if (tl.index < tl.maxIndex()) {
+                if (this.timelineSet.thread) {
+                    console.error(`canPaginate: ${direction}, true, tl.index < tl.maxIndex`);
+                }
                 return true;
             }
         }
 
-        return Boolean(tl.timeline.getNeighbouringTimeline(direction) ||
-            tl.timeline.getPaginationToken(direction) !== null);
+        const hasNeighbouringTimeline = tl.timeline.getNeighbouringTimeline(direction);
+        const paginationToken = tl.timeline.getPaginationToken(direction);
+        const hasPaginationToken = paginationToken !== null;
+        if (hasNeighbouringTimeline) {
+            if (this.timelineSet.thread) {
+                console.error(`canPaginate: ${direction}, true, hasNeighbouringTimeline`);
+            }
+            return true;
+        }
+        if (hasPaginationToken) {
+            if (this.timelineSet.thread) {
+                console.error(`canPaginate: ${direction}, true, hasPaginationToken`, paginationToken);
+            }
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -260,6 +283,7 @@ export class TimelineWindow {
         makeRequest = true,
         requestLimit = DEFAULT_PAGINATE_LOOP_LIMIT,
     ): Promise<boolean> {
+        console.error("paginate");
         // Either wind back the message cap (if there are enough events in the
         // timeline to do so), or fire off a pagination request.
         const tl = this.getTimelineIndex(direction);
@@ -275,10 +299,12 @@ export class TimelineWindow {
 
         // try moving the cap
         if (this.extend(direction, size)) {
+            console.error("success with extend");
             return true;
         }
 
         if (!makeRequest || requestLimit === 0) {
+            console.error("request limit");
             // todo: should we return something different to indicate that there
             // might be more events out there, but we haven't found them yet?
             return false;
@@ -287,11 +313,11 @@ export class TimelineWindow {
         // try making a pagination request
         const token = tl.timeline.getPaginationToken(direction);
         if (!token) {
-            debuglog("TimelineWindow: no token");
+            console.error("TimelineWindow: no token");
             return false;
         }
 
-        debuglog("TimelineWindow: starting request");
+        console.error("TimelineWindow: starting request");
 
         const prom = this.client.paginateEventTimeline(tl.timeline, {
             backwards: direction == EventTimeline.BACKWARDS,
@@ -330,6 +356,7 @@ export class TimelineWindow {
      *     of the timeline.
      */
     public unpaginate(delta: number, startOfTimeline: boolean): void {
+        console.error("unpaginate");
         const tl = startOfTimeline ? this.start : this.end;
 
         // sanity-check the delta

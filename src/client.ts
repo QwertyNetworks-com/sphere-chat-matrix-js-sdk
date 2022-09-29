@@ -5478,14 +5478,14 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
             thread.id,
             THREAD_RELATION_TYPE.name,
             null,
-            { dir: Direction.Backward, limit: 5, from: res.start },
+            { dir: Direction.Backward, from: res.start },
         );
         const resNewer = await this.fetchRelations(
             timelineSet.room.roomId,
             thread.id,
             THREAD_RELATION_TYPE.name,
             null,
-            { dir: Direction.Forward, limit: 5, from: res.end },
+            { dir: Direction.Forward, from: res.end },
         );
         const event = mapper(res.event);
         const events = [
@@ -5509,8 +5509,11 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
         }
 
         timelineSet.addEventsToTimeline(events, true, timeline, resNewer.next_batch);
-        timeline.setPaginationToken(resOlder.next_batch, Direction.Backward);
-        timeline.setPaginationToken(resNewer.next_batch, Direction.Forward);
+        if (!resOlder.next_batch) {
+            timelineSet.addEventsToTimeline([mapper(resOlder.original_event)], true, timeline, null);
+        }
+        timeline.setPaginationToken(resOlder.next_batch ?? null, Direction.Backward);
+        timeline.setPaginationToken(resNewer.next_batch ?? null, Direction.Forward);
         this.processBeaconEvents(timelineSet.room, events);
 
         // There is no guarantee that the event ended up in "timeline" (we might have switched to a neighbouring
@@ -5843,6 +5846,7 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
                 });
                 const newToken = res.next_batch;
 
+                console.error("received events while paginating thread in " + dir, matrixEvents);
                 const timelineSet = eventTimeline.getTimelineSet();
                 timelineSet.addEventsToTimeline(matrixEvents, backwards, eventTimeline, newToken ?? null);
                 if (!newToken && backwards) {

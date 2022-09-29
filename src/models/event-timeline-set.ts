@@ -544,7 +544,7 @@ export class EventTimelineSet extends TypedEventEmitter<EmittedEvents, EventTime
                 );
                 return;
             }
-            timeline.setPaginationToken(paginationToken, direction);
+            timeline.setPaginationToken(paginationToken ?? null, direction);
         }
     }
 
