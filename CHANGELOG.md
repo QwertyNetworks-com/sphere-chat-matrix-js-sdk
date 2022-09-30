@@ -1,3 +1,30 @@
+Changes in [20.0.2](https://github.com/matrix-org/matrix-js-sdk/releases/tag/v20.0.2) (2022-09-30)
+==================================================================================================
+
+## 🐛 Bug Fixes
+ * Fix issue in sync when crypto is not supported by client ([\#2715](https://github.com/matrix-org/matrix-js-sdk/pull/2715)). Contributed by @stas-demydiuk.
+
+Changes in [20.0.1](https://github.com/matrix-org/matrix-js-sdk/releases/tag/v20.0.1) (2022-09-28)
+==================================================================================================
+
+## 🐛 Bug Fixes
+ * Fix missing return when receiving an invitation without shared history ([\#2710](https://github.com/matrix-org/matrix-js-sdk/pull/2710)).
+
+Changes in [20.0.0](https://github.com/matrix-org/matrix-js-sdk/releases/tag/v20.0.0) (2022-09-28)
+==================================================================================================
+
+## 🚨 BREAKING CHANGES
+ * Bump IDB crypto store version ([\#2705](https://github.com/matrix-org/matrix-js-sdk/pull/2705)).
+
+Changes in [19.7.0](https://github.com/matrix-org/matrix-js-sdk/releases/tag/v19.7.0) (2022-09-28)
+==================================================================================================
+
+## 🔒 Security
+* Fix for [CVE-2022-39249](https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=CVE%2D2022%2D39249)
+* Fix for [CVE-2022-39250](https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=CVE%2D2022%2D39250)
+* Fix for [CVE-2022-39251](https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=CVE%2D2022%2D39251)
+* Fix for [CVE-2022-39236](https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=CVE%2D2022%2D39236)
+
 Changes in [19.6.0](https://github.com/matrix-org/matrix-js-sdk/releases/tag/v19.6.0) (2022-09-27)
 ==================================================================================================
 

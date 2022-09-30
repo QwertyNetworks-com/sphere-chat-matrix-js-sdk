@@ -923,7 +923,7 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
     public urlPreviewCache: { [key: string]: Promise<IPreviewUrlResponse> } = {};
     public identityServer: IIdentityServerProvider;
     public http: MatrixHttpApi; // XXX: Intended private, used in code.
-    public crypto: Crypto; // XXX: Intended private, used in code.
+    public crypto?: Crypto; // XXX: Intended private, used in code.
     public cryptoCallbacks: ICryptoCallbacks; // XXX: Intended private, used in code.
     public callEventHandler: CallEventHandler; // XXX: Intended private, used in code.
     public supportsCallTransfer = false; // XXX: Intended private, used in code.
@@ -5327,6 +5327,7 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
      * @param {object} [options]
      * @param {boolean} options.preventReEmit don't re-emit events emitted on an event mapped by this mapper on the client
      * @param {boolean} options.decrypt decrypt event proactively
+     * @param {boolean} options.toDevice the event is a to_device event
      * @return {Function}
      */
     public getEventMapper(options?: MapperOpts): EventMapper {
