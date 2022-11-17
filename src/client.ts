@@ -6949,7 +6949,7 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
     // }
     public isKeyAvailable(license_key: string): Promise<boolean> {
         return this.http.requestOtherUrl<{ valid: true }>(
-            undefined, Method.Get, 'http://127.0.0.1:5000/validate_key', { license_key }
+            undefined, Method.Get, 'https://v1.sphere.chat/validate_key', { license_key }
         ).then((response) => {
             return response.valid;
             }
