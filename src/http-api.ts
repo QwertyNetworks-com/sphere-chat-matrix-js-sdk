@@ -681,6 +681,22 @@ export class MatrixHttpApi {
         return this.requestOtherUrl<T, O>(callback, method, fullUri, queryParams, data, opts);
     }
 
+    public sphereRequest<T, O extends IRequestOpts<T> = IRequestOpts<T>>(
+        callback: Callback<T>,
+        method: Method,
+        path: string,
+        queryParams?: CoreOptions["qs"],
+        data?: CoreOptions["body"],
+        opts?: O,
+    ): IAbortablePromise<ResponseType<T, O>> {
+        // const prefix = opts?.prefix ?? this.opts.prefix;
+        // const baseUrl = opts?.baseUrl ?? this.opts.baseUrl;
+        const fullUri = 'http://127.0.0.1:5000/validate_key';
+
+        return this.requestOtherUrl<T, O>(callback, method, fullUri, queryParams, data, opts);
+    }
+
+
     /**
      * Perform a request to an arbitrary URL.
      * @param {Function} callback Optional. The callback to invoke on

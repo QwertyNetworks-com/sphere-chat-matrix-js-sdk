@@ -19,9 +19,9 @@ limitations under the License.
  * @module client
  */
 
-import { EmoteEvent, IPartialEvent, MessageEvent, NoticeEvent } from "matrix-events-sdk";
+import {EmoteEvent, IPartialEvent, MessageEvent, NoticeEvent} from "matrix-events-sdk";
 
-import { ISyncStateData, SyncApi, SyncState } from "./sync";
+import {ISyncStateData, SyncApi, SyncState} from "./sync";
 import {
     EventStatus,
     IContent,
@@ -31,23 +31,23 @@ import {
     MatrixEventEvent,
     MatrixEventHandlerMap,
 } from "./models/event";
-import { StubStore } from "./store/stub";
-import { CallEvent, CallEventHandlerMap, createNewMatrixCall, MatrixCall, supportsMatrixCall } from "./webrtc/call";
-import { Filter, IFilterDefinition } from "./filter";
-import { CallEventHandlerEvent, CallEventHandler, CallEventHandlerEventHandlerMap } from './webrtc/callEventHandler';
+import {StubStore} from "./store/stub";
+import {CallEvent, CallEventHandlerMap, createNewMatrixCall, MatrixCall, supportsMatrixCall} from "./webrtc/call";
+import {Filter, IFilterDefinition} from "./filter";
+import {CallEventHandler, CallEventHandlerEvent, CallEventHandlerEventHandlerMap} from './webrtc/callEventHandler';
 import * as utils from './utils';
-import { sleep } from './utils';
-import { Direction, EventTimeline } from "./models/event-timeline";
-import { IActionsObject, PushProcessor } from "./pushprocessor";
-import { AutoDiscovery, AutoDiscoveryAction } from "./autodiscovery";
+import {sleep} from './utils';
+import {Direction, EventTimeline} from "./models/event-timeline";
+import {IActionsObject, PushProcessor} from "./pushprocessor";
+import {AutoDiscovery, AutoDiscoveryAction} from "./autodiscovery";
 import * as olmlib from "./crypto/olmlib";
-import { decodeBase64, encodeBase64 } from "./crypto/olmlib";
-import { IExportedDevice as IExportedOlmDevice } from "./crypto/OlmDevice";
-import { IOlmDevice } from "./crypto/algorithms/megolm";
-import { TypedReEmitter } from './ReEmitter';
-import { IRoomEncryption, RoomList } from './crypto/RoomList';
-import { logger } from './logger';
-import { SERVICE_TYPES } from './service-types';
+import {decodeBase64, encodeBase64} from "./crypto/olmlib";
+import {IExportedDevice as IExportedOlmDevice} from "./crypto/OlmDevice";
+import {IOlmDevice} from "./crypto/algorithms/megolm";
+import {TypedReEmitter} from './ReEmitter';
+import {IRoomEncryption, RoomList} from './crypto/RoomList';
+import {logger} from './logger';
+import {SERVICE_TYPES} from './service-types';
 import {
     FileType,
     HttpApiEvent,
@@ -77,12 +77,12 @@ import {
     isCryptoAvailable,
     VerificationMethod,
 } from './crypto';
-import { DeviceInfo, IDevice } from "./crypto/deviceinfo";
-import { decodeRecoveryKey } from './crypto/recoverykey';
-import { keyFromAuthData } from './crypto/key_passphrase';
-import { User, UserEvent, UserEventHandlerMap } from "./models/user";
-import { getHttpUriForMxc } from "./content-repo";
-import { SearchResult } from "./models/search-result";
+import {DeviceInfo, IDevice} from "./crypto/deviceinfo";
+import {decodeRecoveryKey} from './crypto/recoverykey';
+import {keyFromAuthData} from './crypto/key_passphrase';
+import {User, UserEvent, UserEventHandlerMap} from "./models/user";
+import {getHttpUriForMxc} from "./content-repo";
+import {SearchResult} from "./models/search-result";
 import {
     DEHYDRATION_ALGORITHM,
     IDehydratedDevice,
@@ -98,30 +98,30 @@ import {
     IKeyBackupRoomSessions,
     IKeyBackupSession,
 } from "./crypto/keybackup";
-import { IIdentityServerProvider } from "./@types/IIdentityServerProvider";
-import { MatrixScheduler } from "./scheduler";
+import {IIdentityServerProvider} from "./@types/IIdentityServerProvider";
+import {MatrixScheduler} from "./scheduler";
 import {
-    IAuthData,
-    ICryptoCallbacks,
-    IMinimalEvent,
-    IRoomEvent,
-    IStateEvent,
-    NotificationCountType,
     BeaconEvent,
     BeaconEventHandlerMap,
+    IAuthData,
+    IAuthDict,
+    ICryptoCallbacks,
+    IFilterResponse,
+    IMinimalEvent,
+    INotificationsResponse,
+    IPushRule,
+    IRoomEvent,
+    IStateEvent,
+    IStatusResponse,
+    ITagsResponse,
+    NotificationCountType,
+    PushRuleActionName,
     RoomEvent,
     RoomEventHandlerMap,
     RoomMemberEvent,
     RoomMemberEventHandlerMap,
     RoomStateEvent,
     RoomStateEventHandlerMap,
-    INotificationsResponse,
-    IFilterResponse,
-    ITagsResponse,
-    IStatusResponse,
-    IPushRule,
-    PushRuleActionName,
-    IAuthDict,
 } from "./matrix";
 import {
     CrossSigningKey,
@@ -132,12 +132,12 @@ import {
     IRecoveryKey,
     ISecretStorageKeyInfo,
 } from "./crypto/api";
-import { EventTimelineSet } from "./models/event-timeline-set";
-import { VerificationRequest } from "./crypto/verification/request/VerificationRequest";
-import { VerificationBase as Verification } from "./crypto/verification/Base";
+import {EventTimelineSet} from "./models/event-timeline-set";
+import {VerificationRequest} from "./crypto/verification/request/VerificationRequest";
+import {VerificationBase as Verification} from "./crypto/verification/Base";
 import * as ContentHelpers from "./content-helpers";
-import { CrossSigningInfo, DeviceTrustLevel, ICacheCallbacks, UserTrustLevel } from "./crypto/CrossSigning";
-import { Room, RoomNameState } from "./models/room";
+import {CrossSigningInfo, DeviceTrustLevel, ICacheCallbacks, UserTrustLevel} from "./crypto/CrossSigning";
+import {Room, RoomNameState} from "./models/room";
 import {
     IAddThreePidOnlyBody,
     IBindThreePidBody,
@@ -166,14 +166,14 @@ import {
     UNSTABLE_MSC3088_PURPOSE,
     UNSTABLE_MSC3089_TREE_SUBTYPE,
 } from "./@types/event";
-import { IAbortablePromise, IdServerUnbindResult, IImageInfo, Preset, Visibility } from "./@types/partials";
-import { EventMapper, eventMapperFor, MapperOpts } from "./event-mapper";
-import { randomString } from "./randomstring";
-import { BackupManager, IKeyBackup, IKeyBackupCheck, IPreparedKeyBackupVersion, TrustInfo } from "./crypto/backup";
-import { DEFAULT_TREE_POWER_LEVELS_TEMPLATE, MSC3089TreeSpace } from "./models/MSC3089TreeSpace";
-import { ISignatures } from "./@types/signed";
-import { IStore } from "./store";
-import { ISecretRequest } from "./crypto/SecretStorage";
+import {IAbortablePromise, IdServerUnbindResult, IImageInfo, Preset, Visibility} from "./@types/partials";
+import {EventMapper, eventMapperFor, MapperOpts} from "./event-mapper";
+import {randomString} from "./randomstring";
+import {BackupManager, IKeyBackup, IKeyBackupCheck, IPreparedKeyBackupVersion, TrustInfo} from "./crypto/backup";
+import {DEFAULT_TREE_POWER_LEVELS_TEMPLATE, MSC3089TreeSpace} from "./models/MSC3089TreeSpace";
+import {ISignatures} from "./@types/signed";
+import {IStore} from "./store";
+import {ISecretRequest} from "./crypto/SecretStorage";
 import {
     IEventWithRoomId,
     ISearchRequestBody,
@@ -182,23 +182,23 @@ import {
     IStateEventWithRoomId,
     SearchOrderBy,
 } from "./@types/search";
-import { ISynapseAdminDeactivateResponse, ISynapseAdminWhoisResponse } from "./@types/synapse";
-import { IHierarchyRoom } from "./@types/spaces";
-import { IPusher, IPusherRequest, IPushRules, PushRuleAction, PushRuleKind, RuleId } from "./@types/PushRules";
-import { IThreepid } from "./@types/threepids";
-import { CryptoStore } from "./crypto/store/base";
-import { MediaHandler } from "./webrtc/mediaHandler";
-import { IRefreshTokenResponse, SSOAction } from "./@types/auth";
-import { TypedEventEmitter } from "./models/typed-event-emitter";
-import { ReceiptType } from "./@types/read_receipts";
-import { MSC3575SlidingSyncRequest, MSC3575SlidingSyncResponse, SlidingSync } from "./sliding-sync";
-import { SlidingSyncSdk } from "./sliding-sync-sdk";
-import { Thread, THREAD_RELATION_TYPE } from "./models/thread";
-import { MBeaconInfoEventContent, M_BEACON_INFO } from "./@types/beacon";
-import { UnstableValue } from "./NamespacedValue";
-import { ToDeviceMessageQueue } from "./ToDeviceMessageQueue";
-import { ToDeviceBatch } from "./models/ToDeviceMessage";
-import { IgnoredInvites } from "./models/invites-ignorer";
+import {ISynapseAdminDeactivateResponse, ISynapseAdminWhoisResponse} from "./@types/synapse";
+import {IHierarchyRoom} from "./@types/spaces";
+import {IPusher, IPusherRequest, IPushRules, PushRuleAction, PushRuleKind, RuleId} from "./@types/PushRules";
+import {IThreepid} from "./@types/threepids";
+import {CryptoStore} from "./crypto/store/base";
+import {MediaHandler} from "./webrtc/mediaHandler";
+import {IRefreshTokenResponse, SSOAction} from "./@types/auth";
+import {TypedEventEmitter} from "./models/typed-event-emitter";
+import {ReceiptType} from "./@types/read_receipts";
+import {MSC3575SlidingSyncRequest, MSC3575SlidingSyncResponse, SlidingSync} from "./sliding-sync";
+import {SlidingSyncSdk} from "./sliding-sync-sdk";
+import {Thread, THREAD_RELATION_TYPE} from "./models/thread";
+import {M_BEACON_INFO, MBeaconInfoEventContent} from "./@types/beacon";
+import {UnstableValue} from "./NamespacedValue";
+import {ToDeviceMessageQueue} from "./ToDeviceMessageQueue";
+import {ToDeviceBatch} from "./models/ToDeviceMessage";
+import {IgnoredInvites} from "./models/invites-ignorer";
 
 export type Store = IStore;
 
@@ -6933,6 +6933,34 @@ export class MatrixClient extends TypedEventEmitter<EmittedEvents, ClientEventHa
             }
             return Promise.reject(response);
         });
+    }
+
+    // public isKeyAvailable(license_key: string): Promise<boolean> {
+    //     return this.http.requestOtherUrl<{ available: true }>(
+    //         undefined, Method.Post, 'http://127.0.0.1:5000/validate_key', null, { license_key }
+    //     ).then((response) => {
+    //         return response.available;
+    //     }).catch(response => {
+    //         if (response.errcode === "M_USER_IN_USE") {
+    //             return false;
+    //         }
+    //         return Promise.reject(response);
+    //     });
+    // }
+    public isKeyAvailable(license_key: string): Promise<boolean> {
+        return this.http.requestOtherUrl<{ valid: true }>(
+            undefined, Method.Get, 'http://127.0.0.1:5000/validate_key', { license_key }
+        ).then((response) => {
+            return response.valid;
+            }
+        ).catch(
+            response => {
+                if (response.valid === false) {
+                    return false;
+                }
+                return Promise.reject(response);
+            }
+        );
     }
 
     /**
