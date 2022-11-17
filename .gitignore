@@ -19,3 +19,10 @@ out
 
 .vscode
 .vscode/
+/src/models/check-key.ts
+/.idea/codeStyles/codeStyleConfig.xml
+/.idea/modules.xml
+/.idea/codeStyles/Project.xml
+/.idea/inspectionProfiles/Project_Default.xml
+/.idea/sphere-chat-matrix-js-sdk.iml
+/.idea/vcs.xml
